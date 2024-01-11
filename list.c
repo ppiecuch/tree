@@ -22,7 +22,7 @@ extern bool Dflag, Hflag, inodeflag, devflag, Rflag, duflag, pruneflag, metafirs
 extern bool Jflag, hflag, siflag, noreport, noindent, force_color, xdev, nolinks;
 
 extern struct _info **(*getfulltree)(char *d, u_long lev, dev_t dev, off_t *size, char **err);
-extern int (*topsort)();
+extern int (*topsort)(struct _info **, struct _info **);
 extern FILE *outfile;
 extern int flimit, Level, *dirs, maxdirs, errors;
 extern int htmldirlen;
@@ -71,7 +71,7 @@ void emit_tree(char **dirname, bool needfulltree)
     if (fflag) {
       j=strlen(dirname[i]);
       do {
-	if (j > 1 && dirname[i][j-1] == '/') dirname[i][--j] = 0;
+        if (j > 1 && dirname[i][j-1] == '/') dirname[i][--j] = 0;
       } while (j > 1 && dirname[i][j-1] == '/');
     }
     if (Hflag) htmldirlen = strlen(dirname[i]);
@@ -82,11 +82,11 @@ void emit_tree(char **dirname, bool needfulltree)
       info->name = dirname[i];
 
       if (needfulltree) {
-	dir = getfulltree(dirname[i], 0, st.st_dev, &(info->size), &err);
-	n = err? -1 : 0;
+        dir = getfulltree(dirname[i], 0, st.st_dev, &(info->size), &err);
+        n = err? -1 : 0;
       } else {
-	push_files(dirname[i], &ig, &inf, TRUE);
-	dir = read_dir(dirname[i], &n, inf != NULL);
+        push_files(dirname[i], &ig, &inf, TRUE);
+        dir = read_dir(dirname[i], &n, inf != NULL);
       }
 
       lc.printinfo(dirname[i], info, 0);
@@ -109,8 +109,8 @@ void emit_tree(char **dirname, bool needfulltree)
     } else {
       lc.newline(info, 0, 0, 0);
       if (dir) {
-	subtotal = listdir(dirname[i], dir, 1, st.st_dev, needfulltree);
-	subtotal.dirs++;
+        subtotal = listdir(dirname[i], dir, 1, st.st_dev, needfulltree);
+        subtotal.dirs++;
       }
     }
     if (dir) {
@@ -122,8 +122,9 @@ void emit_tree(char **dirname, bool needfulltree)
     tot.files += subtotal.files;
     tot.dirs += subtotal.dirs;
     tot.size += subtotal.size;
-//     if (duflag) tot.size = info->size;
-//     else tot.size += st.st_size;
+
+    // if (duflag) tot.size = info->size;
+    // else tot.size += st.st_size;
 
     if (ig != NULL) ig = pop_filterstack();
     if (inf != NULL) inf = pop_infostack();
@@ -151,7 +152,11 @@ struct totals listdir(char *dirname, struct _info **dir, int lev, dev_t dev, boo
   if (dir == NULL || *dir == NULL) return tot;
 
   for(n=0; dir[n]; n++);
+#ifdef __APPLE__
+  if (topsort) qsort(dir, n, sizeof(struct _info *), (int (*)(const void *, const void *))topsort);
+#else
   if (topsort) qsort(dir, n, sizeof(struct _info *), topsort);
+#endif
 
   dirs[lev] = *(dir+1)? 1 : 2;
 
@@ -175,69 +180,70 @@ struct totals listdir(char *dirname, struct _info **dir, int lev, dev_t dev, boo
       tot.dirs++;
 
       if (!hasfulltree) {
-	found = findino((*dir)->inode,(*dir)->dev);
-	if (!found) {
-	  saveino((*dir)->inode, (*dir)->dev);
-	}
+        found = findino((*dir)->inode,(*dir)->dev);
+        if (!found) {
+          saveino((*dir)->inode, (*dir)->dev);
+        }
       } else found = FALSE;
 
       if (!(xdev && dev != (*dir)->dev) && (!(*dir)->lnk || ((*dir)->lnk && lflag))) {
-	descend = 1;
-	newpath = path;
+        descend = 1;
+        newpath = path;
 
-	if ((*dir)->lnk) {
-	  if (*(*dir)->lnk == '/') newpath = (*dir)->lnk;
-	  else {
-	    if (fflag && !strcmp(dirname,"/")) sprintf(path,"%s%s",dirname,(*dir)->lnk);
-	    else sprintf(path,"%s/%s",dirname,(*dir)->lnk);
-	  }
-	  if (found) {
-	    err = "recursive, not followed";
-	    descend = -1;
-	  }
-	}
+        if ((*dir)->lnk) {
+          if (*(*dir)->lnk == '/') newpath = (*dir)->lnk;
+          else {
+            if (fflag && !strcmp(dirname,"/")) sprintf(path,"%s%s",dirname,(*dir)->lnk);
+            else sprintf(path,"%s/%s",dirname,(*dir)->lnk);
+          }
+          if (found) {
+            err = "recursive, not followed";
+            descend = -1;
+          }
+        }
 
-	if ((Level >= 0) && (lev > Level)) {
-	  if (Rflag) {
-	    FILE *outsave = outfile;
-	    char *paths[2] = {newpath, NULL}, *output = xmalloc(strlen(newpath) + 13);
-	    int *dirsave = xmalloc(sizeof(int) * (lev + 2));
+        if ((Level >= 0) && (lev > Level)) {
+          if (Rflag) {
+            FILE *outsave = outfile;
+            char *paths[2] = {newpath, NULL}, *output = xmalloc(strlen(newpath) + 13);
+            int *dirsave = xmalloc(sizeof(int) * (lev + 2));
 
-	    memcpy(dirsave, dirs, sizeof(int) * (lev+1));
-	    sprintf(output, "%s/00Tree.html", newpath);
-	    setoutput(output);
-	    emit_tree(paths, hasfulltree);
+            memcpy(dirsave, dirs, sizeof(int) * (lev+1));
+            sprintf(output, "%s/00Tree.html", newpath);
+            setoutput(output);
+            emit_tree(paths, hasfulltree);
 
-	    free(output);
-	    fclose(outfile);
-	    outfile = outsave;
+            free(output);
+            fclose(outfile);
+            outfile = outsave;
 
-	    memcpy(dirs, dirsave, sizeof(int) * (lev+1));
-	    free(dirsave);
-	    htmldescend = 10;
-	  } else htmldescend = 0;
-	  descend = 0;
-	}
+            memcpy(dirs, dirsave, sizeof(int) * (lev+1));
+            free(dirsave);
+            htmldescend = 10;
+          } else htmldescend = 0;
+          descend = 0;
+        }
 
-	if (descend > 0) {
-	  if (hasfulltree) {
-	    subdir = (*dir)->child;
-	    err = (*dir)->err;
-	  } else {
-	    push_files(newpath, &ig, &inf, FALSE);
-	    subdir = read_dir(newpath, &n, inf != NULL);
-	    if (!subdir && n) {
-	      err = "error opening dir";
-	      errors++;
-	    } if (flimit > 0 && n > flimit) {
-	      sprintf(err = errbuf,"%d entries exceeds filelimit, not opening dir", n);
-	      errors++;
-	      free_dir(subdir);
-	      subdir = NULL;
-	    }
-	  }
-	  if (subdir == NULL) descend = 0;
-	}
+        if (descend > 0) {
+          if (hasfulltree) {
+            subdir = (*dir)->child;
+            err = (*dir)->err;
+          } else {
+            push_files(newpath, &ig, &inf, FALSE);
+            subdir = read_dir(newpath, &n, inf != NULL);
+            if (!subdir && n) {
+              err = "error opening dir";
+              errors++;
+            }
+            if (flimit > 0 && n > flimit) {
+              sprintf(err = errbuf,"%d entries exceeds filelimit, not opening dir", n);
+              errors++;
+              free_dir(subdir);
+              subdir = NULL;
+            }
+          }
+          if (subdir == NULL) descend = 0;
+        }
       }
     } else tot.files++;
 

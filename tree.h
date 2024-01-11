@@ -208,7 +208,7 @@ int sizecmp(off_t a, off_t b);
 int fsizesort(struct _info **a, struct _info **b);
 
 void *xmalloc(size_t), *xrealloc(void *, size_t);
-char *gnu_getcwd();
+char *gnu_getcwd(void);
 int patmatch(char *, char *, int);
 void indent(int maxlevel);
 void free_dir(struct _info **);
@@ -272,7 +272,7 @@ void json_close(struct _info *file, int level, int needcomma);
 void json_report(struct totals tot);
 
 /* color.c */
-void parse_dir_colors();
+void parse_dir_colors(void);
 int color(u_short mode, char *name, bool orphan, bool islink);
 void endcolor(void);
 const char *getcharset(void);

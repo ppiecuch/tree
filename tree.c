@@ -18,16 +18,16 @@
 
 #include "tree.h"
 
-char *version = "$Version: $ tree v2.1.1 %s 1996 - 2023 by Steve Baker, Thomas Moore, Francesc Rocher, Florian Sesser, Kyosuke Tokoro $";
-char *hversion= "\t\t tree v2.1.1 %s 1996 - 2023 by Steve Baker and Thomas Moore <br>\n"
-		"\t\t HTML output hacked and copyleft %s 1998 by Francesc Rocher <br>\n"
-		"\t\t JSON output hacked and copyleft %s 2014 by Florian Sesser <br>\n"
-		"\t\t Charsets / OS/2 support %s 2001 by Kyosuke Tokoro\n";
+char *version = "$Version: $ tree v2.1.1b %s 1996 - 2023 by Steve Baker, Thomas Moore, Francesc Rocher, Florian Sesser, Kyosuke Tokoro $";
+char *hversion= "\t\t tree v2.1.1b %s 1996 - 2023 by Steve Baker and Thomas Moore <br>\n"
+        "\t\t HTML output hacked and copyleft %s 1998 by Francesc Rocher <br>\n"
+        "\t\t JSON output hacked and copyleft %s 2014 by Florian Sesser <br>\n"
+        "\t\t Charsets / OS/2 support %s 2001 by Kyosuke Tokoro\n";
 
 /* Globals */
 bool dflag, lflag, pflag, sflag, Fflag, aflag, fflag, uflag, gflag;
 bool qflag, Nflag, Qflag, Dflag, inodeflag, devflag, hflag, Rflag;
-bool Hflag, siflag, cflag, Xflag, Jflag, duflag, pruneflag;
+bool Hflag, siflag, cflag, Xflag, Jflag, duflag, scanflag, pruneflag;
 bool noindent, force_color, nocolor, xdev, noreport, nolinks;
 bool ignorecase, matchdirs, fromfile, metafirst, gitignore, showinfo;
 bool reverse, fflinks;
@@ -46,8 +46,8 @@ const char *charset = NULL;
 
 struct _info **(*getfulltree)(char *d, u_long lev, dev_t dev, off_t *size, char **err) = unix_getfulltree;
 /* off_t (*listdir)(char *, int *, int *, u_long, dev_t) = unix_listdir; */
-int (*basesort)() = alnumsort;
-int (*topsort)() = NULL;
+int (*basesort)(struct _info **, struct _info **) = alnumsort;
+int (*topsort)(struct _info **, struct _info **) = NULL;
 
 char *sLevel, *curdir;
 FILE *outfile = NULL;
@@ -74,7 +74,7 @@ const u_short ifmt[]={ FILE_ARCHIVED, FILE_DIRECTORY, FILE_SYSTEM, FILE_HIDDEN, 
 
 struct sorts {
   char *name;
-  int (*cmpfunc)();
+  int (*cmpfunc)(struct _info **, struct _info **);
 } sorts[] = {
   {"name", alnumsort},
   {"version", versort},
@@ -103,11 +103,11 @@ char *long_arg(char *argv[], int i, int *j, int *n, char *prefix) {
     *j = len;
     if (*(argv[i]+(*j)) == '=') {
       if (*(argv[i]+ (++(*j)))) {
-	ret=(argv[i] + (*j));
-	*j = strlen(argv[i])-1;
+        ret=(argv[i] + (*j));
+        *j = strlen(argv[i])-1;
       } else {
-	fprintf(stderr,"tree: Missing argument to %s=\n", prefix);
-	exit(1);
+        fprintf(stderr,"tree: Missing argument to %s=\n", prefix);
+        exit(1);
       }
     } else if (argv[*n] != NULL) {
       ret = argv[*n];
@@ -128,14 +128,14 @@ int main(int argc, char **argv)
   char **dirname = NULL;
   int i, j=0, k, n, optf, p = 0, q = 0;
   char *stmp, *outfilename = NULL, *arg;
-  char *stddata_fd;
   bool needfulltree, showversion = FALSE;
+  char *stddata_fd;
 
   aflag = dflag = fflag = lflag = pflag = sflag = Fflag = uflag = gflag = FALSE;
   Dflag = qflag = Nflag = Qflag = Rflag = hflag = Hflag = siflag = cflag = FALSE;
   noindent = force_color = nocolor = xdev = noreport = nolinks = reverse = FALSE;
   ignorecase = matchdirs = inodeflag = devflag = Xflag = Jflag = fflinks = FALSE;
-  duflag = pruneflag = metafirst = gitignore = FALSE;
+  duflag = scanflag = pruneflag = metafirst = gitignore = FALSE;
 
   flimit = 0;
   dirs = xmalloc(sizeof(int) * (maxdirs=PATH_MAX));
@@ -175,12 +175,14 @@ int main(int argc, char **argv)
       Jflag = noindent = TRUE;
       _nl = "";
       lc = (struct listingcalls){
-	json_intro, json_outtro, json_printinfo, json_printfile, json_error, json_newline,
-	json_close, json_report
+        json_intro, json_outtro, json_printinfo, json_printfile, json_error, json_newline,
+        json_close, json_report
       };
       outfile = fdopen(std_fd, "w");
     }
   }
+#else
+  (void)stddata_fd;
 #endif
 
   memset(utable,0,sizeof(utable));
@@ -192,339 +194,347 @@ int main(int argc, char **argv)
     n++;
     if (optf && argv[i][0] == '-' && argv[i][1]) {
       for(j=1;argv[i][j];j++) {
-	switch(argv[i][j]) {
-	case 'N':
-	  Nflag = TRUE;
-	  break;
-	case 'q':
-	  qflag = TRUE;
-	  break;
-	case 'Q':
-	  Qflag = TRUE;
-	  break;
-	case 'd':
-	  dflag = TRUE;
-	  break;
-	case 'l':
-	  lflag = TRUE;
-	  break;
-	case 's':
-	  sflag = TRUE;
-	  break;
-	case 'h':
-	  hflag = TRUE;
-	  sflag = TRUE; /* Assume they also want -s */
-	  break;
-	case 'u':
-	  uflag = TRUE;
-	  break;
-	case 'g':
-	  gflag = TRUE;
-	  break;
-	case 'f':
-	  fflag = TRUE;
-	  break;
-	case 'F':
-	  Fflag = TRUE;
-	  break;
-	case 'a':
-	  aflag = TRUE;
-	  break;
-	case 'p':
-	  pflag = TRUE;
-	  break;
-	case 'i':
-	  noindent = TRUE;
-	  _nl = "";
-	  break;
-	case 'C':
-	  force_color = TRUE;
-	  break;
-	case 'n':
-	  nocolor = TRUE;
-	  break;
-	case 'x':
-	  xdev = TRUE;
-	  break;
-	case 'P':
-	  if (argv[n] == NULL) {
-	    fprintf(stderr,"tree: Missing argument to -P option.\n");
-	    exit(1);
-	  }
-	  if (pattern >= maxpattern-1) patterns = xrealloc(patterns, sizeof(char *) * (maxpattern += 10));
-	  patterns[pattern++] = argv[n++];
-	  patterns[pattern] = NULL;
-	  break;
-	case 'I':
-	  if (argv[n] == NULL) {
-	    fprintf(stderr,"tree: Missing argument to -I option.\n");
-	    exit(1);
-	  }
-	  if (ipattern >= maxipattern-1) ipatterns = xrealloc(ipatterns, sizeof(char *) * (maxipattern += 10));
-	  ipatterns[ipattern++] = argv[n++];
-	  ipatterns[ipattern] = NULL;
-	  break;
-	case 'A':
-	  ansilines = TRUE;
-	  break;
-	case 'S':
-	  charset = "IBM437";
-	  break;
-	case 'D':
-	  Dflag = TRUE;
-	  break;
-	case 't':
-	  basesort = mtimesort;
-	  break;
-	case 'c':
-	  basesort = ctimesort;
-	  cflag = TRUE;
-	  break;
-	case 'r':
-	  reverse = TRUE;
-	  break;
-	case 'v':
-	  basesort = versort;
-	  break;
-	case 'U':
-	  basesort = NULL;
-	  break;
-	case 'X':
-	  Xflag = TRUE;
-	  Hflag = Jflag = FALSE;
-	  lc = (struct listingcalls){
-	    xml_intro, xml_outtro, xml_printinfo, xml_printfile, xml_error, xml_newline,
-	    xml_close, xml_report
-	  };
-	  break;
-	case 'J':
-	  Jflag = TRUE;
-	  Xflag = Hflag = FALSE;
-	  lc = (struct listingcalls){
-	    json_intro, json_outtro, json_printinfo, json_printfile, json_error, json_newline,
-	    json_close, json_report
-	  };
-	  break;
-	case 'H':
-	  Hflag = TRUE;
-	  Xflag = Jflag = FALSE;
-	  lc = (struct listingcalls){
-	    html_intro, html_outtro, html_printinfo, html_printfile, html_error, html_newline,
-	    html_close, html_report
-	  };
-	  if (argv[n] == NULL) {
-	    fprintf(stderr,"tree: Missing argument to -H option.\n");
-	    exit(1);
-	  }
-	  host = argv[n++];
-	  k = strlen(host)-1;
-	  /* Allows a / if that is the only character as the 'host': */
-	  if (k && host[k] == '/') host[k] = '\0';
-	  sp = "&nbsp;";
-	  break;
-	case 'T':
-	  if (argv[n] == NULL) {
-	    fprintf(stderr,"tree: Missing argument to -T option.\n");
-	    exit(1);
-	  }
-	  title = argv[n++];
-	  break;
-	case 'R':
-	  Rflag = TRUE;
-	  break;
-	case 'L':
-	  if ((sLevel = argv[n++]) == NULL) {
-	    fprintf(stderr,"tree: Missing argument to -L option.\n");
-	    exit(1);
-	  }
-	  Level = strtoul(sLevel,NULL,0)-1;
-	  if (Level < 0) {
-	    fprintf(stderr,"tree: Invalid level, must be greater than 0.\n");
-	    exit(1);
-	  }
-	  break;
-	case 'o':
-	  if (argv[n] == NULL) {
-	    fprintf(stderr,"tree: Missing argument to -o option.\n");
-	    exit(1);
-	  }
-	  outfilename = argv[n++];
-	  break;
-	case '-':
-	  if (j == 1) {
-	    if (!strcmp("--", argv[i])) {
-	      optf = FALSE;
-	      break;
-	    }
-	    /* Long options that don't take parameters should just use strcmp: */
-	    if (!strcmp("--help",argv[i])) {
-	      usage(2);
-	      exit(0);
-	    }
-	    if (!strcmp("--version",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      showversion = TRUE;
-	      break;
-	    }
-	    if (!strcmp("--inodes",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      inodeflag=TRUE;
-	      break;
-	    }
-	    if (!strcmp("--device",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      devflag=TRUE;
-	      break;
-	    }
-	    if (!strcmp("--noreport",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      noreport = TRUE;
-	      break;
-	    }
-	    if (!strcmp("--nolinks",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      nolinks = TRUE;
-	      break;
-	    }
-	    if (!strcmp("--dirsfirst",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      topsort = dirsfirst;
-	      break;
-	    }
-	    if (!strcmp("--filesfirst",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      topsort = filesfirst;
-	      break;
-	    }
-	    if ((arg = long_arg(argv, i, &j, &n, "--filelimit")) != NULL) {
-	      flimit = atoi(arg);
-	      break;
-	    }
-	    if ((arg = long_arg(argv, i, &j, &n, "--charset")) != NULL) {
-	      charset = arg;
-	      break;
-	    }
-	    if (!strcmp("--si", argv[i])) {
-	      j = strlen(argv[i])-1;
-	      sflag = TRUE;
-	      hflag = TRUE;
-	      siflag = TRUE;
-	      break;
-	    }
-	    if (!strcmp("--du",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      sflag = TRUE;
-	      duflag = TRUE;
-	      break;
-	    }
-	    if (!strcmp("--prune",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      pruneflag = TRUE;
-	      break;
-	    }
-	    if ((arg = long_arg(argv, i, &j, &n, "--timefmt")) != NULL) {
-	      timefmt = scopy(arg);
-	      Dflag = TRUE;
-	      break;
-	    }
-	    if (!strcmp("--ignore-case",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      ignorecase = TRUE;
-	      break;
-	    }
-	    if (!strcmp("--matchdirs",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      matchdirs = TRUE;
-	      break;
-	    }
-	    if ((arg = long_arg(argv, i, &j, &n, "--sort")) != NULL) {
-	      basesort = NULL;
-	      for(k=0;sorts[k].name;k++) {
-		if (strcasecmp(sorts[k].name,arg) == 0) {
-		  basesort = sorts[k].cmpfunc;
-		  break;
-		}
-	      }
-	      if (basesort == NULL) {
-		fprintf(stderr,"tree: Sort type '%s' not valid, should be one of: ", arg);
-		for(k=0; sorts[k].name; k++)
-		  printf("%s%c", sorts[k].name, sorts[k+1].name? ',': '\n');
-		exit(1);
-	      }
-	      break;
-	    }
-	    if (!strcmp("--fromtabfile", argv[i])) {
-	      j = strlen(argv[i])-1;
-	      fromfile=TRUE;
-	      getfulltree = tabedfile_getfulltree;
-	      break;
-	    }
-	    if (!strcmp("--fromfile",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      fromfile=TRUE;
-	      getfulltree = file_getfulltree;
-	      break;
-	    }
-	    if (!strcmp("--metafirst",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      metafirst=TRUE;
-	      break;
-	    }
-	    if ((arg = long_arg(argv, i, &j, &n, "--gitfile")) != NULL) {
-	      gitignore=TRUE;
-	      ig = new_ignorefile(arg, FALSE);
-	      if (ig != NULL) push_filterstack(ig);
-	      else {
-		fprintf(stderr,"tree: Could not load gitignore file\n");
-		exit(1);
-	      }
-	      break;
-	    }
-	    if (!strcmp("--gitignore",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      gitignore=TRUE;
-	      break;
-	    }
-	    if (!strcmp("--info",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      showinfo=TRUE;
-	      break;
-	    }
-	    if ((arg = long_arg(argv, i, &j, &n, "--infofile")) != NULL) {
-	      showinfo = TRUE;
-	      inf = new_infofile(arg, FALSE);
-	      if (inf != NULL) push_infostack(inf);
-	      else {
-		fprintf(stderr,"tree: Could not load infofile\n");
-		exit(1);
-	      }
-	      break;
-	    }
-	    if ((arg = long_arg(argv, i, &j, &n, "--hintro")) != NULL) {
-	      Hintro = scopy(arg);
-	      break;
-	    }
-	    if ((arg = long_arg(argv, i, &j, &n, "--houtro")) != NULL) {
-	      Houtro = scopy(arg);
-	      break;
-	    }
-	    if (!strcmp("--fflinks",argv[i])) {
-	      j = strlen(argv[i])-1;
-	      fflinks=TRUE;
-	      break;
-	    }
+        switch(argv[i][j]) {
+          case 'N':
+            Nflag = TRUE;
+            break;
+          case 'q':
+            qflag = TRUE;
+            break;
+          case 'Q':
+            Qflag = TRUE;
+            break;
+          case 'd':
+            dflag = TRUE;
+            break;
+          case 'l':
+            lflag = TRUE;
+            break;
+          case 's':
+            sflag = TRUE;
+            break;
+          case 'h':
+            hflag = TRUE;
+            sflag = TRUE; /* Assume they also want -s */
+            break;
+          case 'u':
+            uflag = TRUE;
+            break;
+          case 'g':
+            gflag = TRUE;
+            break;
+          case 'f':
+            fflag = TRUE;
+            break;
+          case 'F':
+            Fflag = TRUE;
+            break;
+          case 'a':
+            aflag = TRUE;
+            break;
+          case 'p':
+            pflag = TRUE;
+            break;
+          case 'i':
+            noindent = TRUE;
+            _nl = "";
+            break;
+          case 'C':
+            force_color = TRUE;
+            break;
+          case 'n':
+            nocolor = TRUE;
+            break;
+          case 'x':
+            xdev = TRUE;
+            break;
+          case 'P':
+            if (argv[n] == NULL) {
+              fprintf(stderr,"tree: Missing argument to -P option.\n");
+              exit(1);
+            }
+            if (pattern >= maxpattern-1) patterns = xrealloc(patterns, sizeof(char *) * (maxpattern += 10));
+            patterns[pattern++] = argv[n++];
+            patterns[pattern] = NULL;
+            break;
+          case 'I':
+            if (argv[n] == NULL) {
+              fprintf(stderr,"tree: Missing argument to -I option.\n");
+              exit(1);
+            }
+            if (ipattern >= maxipattern-1) ipatterns = xrealloc(ipatterns, sizeof(char *) * (maxipattern += 10));
+            ipatterns[ipattern++] = argv[n++];
+            ipatterns[ipattern] = NULL;
+            break;
+          case 'A':
+            ansilines = TRUE;
+            break;
+          case 'S':
+            charset = "IBM437";
+            break;
+          case 'D':
+            Dflag = TRUE;
+            break;
+          case 't':
+            basesort = mtimesort;
+            break;
+          case 'c':
+            basesort = ctimesort;
+            cflag = TRUE;
+            break;
+          case 'r':
+            reverse = TRUE;
+            break;
+          case 'v':
+            basesort = versort;
+            break;
+          case 'U':
+            basesort = NULL;
+            break;
+          case 'X':
+            Xflag = TRUE;
+            Hflag = Jflag = FALSE;
+            lc = (struct listingcalls){
+              xml_intro, xml_outtro, xml_printinfo, xml_printfile, xml_error, xml_newline,
+              xml_close, xml_report
+            };
+            break;
+          case 'J':
+            Jflag = TRUE;
+            Xflag = Hflag = FALSE;
+            lc = (struct listingcalls){
+              json_intro, json_outtro, json_printinfo, json_printfile, json_error, json_newline,
+              json_close, json_report
+            };
+            break;
+          case 'H':
+            Hflag = TRUE;
+            Xflag = Jflag = FALSE;
+            lc = (struct listingcalls){
+              html_intro, html_outtro, html_printinfo, html_printfile, html_error, html_newline,
+              html_close, html_report
+            };
+            if (argv[n] == NULL) {
+              fprintf(stderr,"tree: Missing argument to -H option.\n");
+              exit(1);
+            }
+            host = argv[n++];
+            k = strlen(host)-1;
+            /* Allows a / if that is the only character as the 'host': */
+            if (k && host[k] == '/') host[k] = '\0';
+            sp = "&nbsp;";
+            break;
+          case 'T':
+            if (argv[n] == NULL) {
+              fprintf(stderr,"tree: Missing argument to -T option.\n");
+              exit(1);
+            }
+            title = argv[n++];
+            break;
+          case 'R':
+            Rflag = TRUE;
+            break;
+          case 'L':
+            if ((sLevel = argv[n++]) == NULL) {
+              fprintf(stderr,"tree: Missing argument to -L option.\n");
+              exit(1);
+            }
+            Level = strtoul(sLevel,NULL,0)-1;
+            if (Level < 0) {
+              fprintf(stderr,"tree: Invalid level, must be greater than 0.\n");
+              exit(1);
+            }
+            break;
+          case 'o':
+            if (argv[n] == NULL) {
+              fprintf(stderr,"tree: Missing argument to -o option.\n");
+              exit(1);
+            }
+            outfilename = argv[n++];
+            break;
+          case '-':
+            if (j == 1) {
+              if (!strcmp("--", argv[i])) {
+                optf = FALSE;
+                break;
+              }
+              /* Long options that don't take parameters should just use strcmp: */
+              if (!strcmp("--help",argv[i])) {
+                usage(2);
+                exit(0);
+              }
+              if (!strcmp("--version",argv[i])) {
+                j = strlen(argv[i])-1;
+                showversion = TRUE;
+                break;
+              }
+              if (!strcmp("--inodes",argv[i])) {
+                j = strlen(argv[i])-1;
+                inodeflag=TRUE;
+                break;
+              }
+              if (!strcmp("--device",argv[i])) {
+                j = strlen(argv[i])-1;
+                devflag=TRUE;
+                break;
+              }
+              if (!strcmp("--noreport",argv[i])) {
+                j = strlen(argv[i])-1;
+                noreport = TRUE;
+                break;
+              }
+              if (!strcmp("--nolinks",argv[i])) {
+                j = strlen(argv[i])-1;
+                nolinks = TRUE;
+                break;
+              }
+              if (!strcmp("--dirsfirst",argv[i])) {
+                j = strlen(argv[i])-1;
+                topsort = dirsfirst;
+                break;
+              }
+              if (!strcmp("--filesfirst",argv[i])) {
+                j = strlen(argv[i])-1;
+                topsort = filesfirst;
+                break;
+              }
+              if ((arg = long_arg(argv, i, &j, &n, "--filelimit")) != NULL) {
+                flimit = atoi(arg);
+                break;
+              }
+              if ((arg = long_arg(argv, i, &j, &n, "--charset")) != NULL) {
+                charset = arg;
+                break;
+              }
+              if (!strcmp("--si", argv[i])) {
+                j = strlen(argv[i])-1;
+                sflag = TRUE;
+                hflag = TRUE;
+                siflag = TRUE;
+                break;
+              }
+              if (!strcmp("--du",argv[i])) {
+                j = strlen(argv[i])-1;
+                sflag = TRUE;
+                duflag = TRUE;
+                scanflag = FALSE;
+                break;
+              }
+              if (!strcmp("--dU",argv[i])) {
+                j = strlen(argv[i])-1;
+                sflag = TRUE;
+                duflag = TRUE;
+                scanflag = TRUE;
+                break;
+              }
+              if (!strcmp("--prune",argv[i])) {
+                j = strlen(argv[i])-1;
+                pruneflag = TRUE;
+                break;
+              }
+              if ((arg = long_arg(argv, i, &j, &n, "--timefmt")) != NULL) {
+                timefmt = scopy(arg);
+                Dflag = TRUE;
+                break;
+              }
+              if (!strcmp("--ignore-case",argv[i])) {
+                j = strlen(argv[i])-1;
+                ignorecase = TRUE;
+                break;
+              }
+              if (!strcmp("--matchdirs",argv[i])) {
+                j = strlen(argv[i])-1;
+                matchdirs = TRUE;
+                break;
+              }
+              if ((arg = long_arg(argv, i, &j, &n, "--sort")) != NULL) {
+                basesort = NULL;
+                for(k=0;sorts[k].name;k++) {
+                  if (strcasecmp(sorts[k].name,arg) == 0) {
+                    basesort = sorts[k].cmpfunc;
+                    break;
+                  }
+                }
+                if (basesort == NULL) {
+                  fprintf(stderr,"tree: Sort type '%s' not valid, should be one of: ", arg);
+                  for(k=0; sorts[k].name; k++)
+                    printf("%s%c", sorts[k].name, sorts[k+1].name? ',': '\n');
+                  exit(1);
+                }
+                break;
+              }
+              if (!strcmp("--fromtabfile", argv[i])) {
+                j = strlen(argv[i])-1;
+                fromfile=TRUE;
+                getfulltree = tabedfile_getfulltree;
+                break;
+              }
+              if (!strcmp("--fromfile",argv[i])) {
+                j = strlen(argv[i])-1;
+                fromfile=TRUE;
+                getfulltree = file_getfulltree;
+                break;
+              }
+              if (!strcmp("--metafirst",argv[i])) {
+                j = strlen(argv[i])-1;
+                metafirst=TRUE;
+                break;
+              }
+              if ((arg = long_arg(argv, i, &j, &n, "--gitfile")) != NULL) {
+                gitignore=TRUE;
+                ig = new_ignorefile(arg, FALSE);
+                if (ig != NULL) push_filterstack(ig);
+                else {
+                  fprintf(stderr,"tree: Could not load gitignore file\n");
+                  exit(1);
+                }
+                break;
+              }
+              if (!strcmp("--gitignore",argv[i])) {
+                j = strlen(argv[i])-1;
+                gitignore=TRUE;
+                break;
+              }
+              if (!strcmp("--info",argv[i])) {
+                j = strlen(argv[i])-1;
+                showinfo=TRUE;
+                break;
+              }
+              if ((arg = long_arg(argv, i, &j, &n, "--infofile")) != NULL) {
+                showinfo = TRUE;
+                inf = new_infofile(arg, FALSE);
+                if (inf != NULL) push_infostack(inf);
+                else {
+                  fprintf(stderr,"tree: Could not load infofile\n");
+                  exit(1);
+                }
+                break;
+              }
+              if ((arg = long_arg(argv, i, &j, &n, "--hintro")) != NULL) {
+                Hintro = scopy(arg);
+                break;
+              }
+              if ((arg = long_arg(argv, i, &j, &n, "--houtro")) != NULL) {
+                Houtro = scopy(arg);
+                break;
+              }
+              if (!strcmp("--fflinks",argv[i])) {
+                j = strlen(argv[i])-1;
+                fflinks=TRUE;
+                break;
+              }
 
-	    fprintf(stderr,"tree: Invalid argument `%s'.\n",argv[i]);
-	    usage(1);
-	    exit(1);
-	  }
-	default:
-	  /* printf("here i = %d, n = %d\n", i, n); */
-	  fprintf(stderr,"tree: Invalid argument -`%c'.\n",argv[i][j]);
-	  usage(1);
-	  exit(1);
-	  break;
-	}
+              fprintf(stderr,"tree: Invalid argument `%s'.\n",argv[i]);
+              usage(1);
+              exit(1);
+            }
+          default:
+            /* printf("here i = %d, n = %d\n", i, n); */
+            fprintf(stderr,"tree: Invalid argument -`%c'.\n",argv[i][j]);
+            usage(1);
+            exit(1);
+            break;
+          }
       }
     } else {
       if (!dirname) dirname = (char **)xmalloc(sizeof(char *) * (q=MINIT));
@@ -609,86 +619,86 @@ void usage(int n)
   /*     123456789!123456789!123456789!123456789!123456789!123456789!123456789!123456789! */
   /*     \t9!123456789!123456789!123456789!123456789!123456789!123456789!123456789! */
   fprintf(n < 2? stderr: stdout,
-	"usage: tree [-acdfghilnpqrstuvxACDFJQNSUX] [-L level [-R]] [-H  baseHREF]\n"
-	"\t[-T title] [-o filename] [-P pattern] [-I pattern] [--gitignore]\n"
-	"\t[--gitfile[=]file] [--matchdirs] [--metafirst] [--ignore-case]\n"
-	"\t[--nolinks] [--hintro[=]file] [--houtro[=]file] [--inodes] [--device]\n"
-	"\t[--sort[=]<name>] [--dirsfirst] [--filesfirst] [--filelimit #] [--si]\n"
-	"\t[--du] [--prune] [--charset[=]X] [--timefmt[=]format] [--fromfile]\n"
-	"\t[--fromtabfile] [--fflinks] [--info] [--infofile[=]file] [--noreport]\n"
-	"\t[--version] [--help] [--] [directory ...]\n");
+    "usage: tree [-acdfghilnpqrstuvxACDFJQNSUX] [-L level [-R]] [-H  baseHREF]\n"
+    "\t[-T title] [-o filename] [-P pattern] [-I pattern] [--gitignore]\n"
+    "\t[--gitfile[=]file] [--matchdirs] [--metafirst] [--ignore-case]\n"
+    "\t[--nolinks] [--hintro[=]file] [--houtro[=]file] [--inodes] [--device]\n"
+    "\t[--sort[=]<name>] [--dirsfirst] [--filesfirst] [--filelimit #] [--si]\n"
+    "\t[--du|--dU] [--prune] [--charset[=]X] [--timefmt[=]format] [--fromfile]\n"
+    "\t[--fromtabfile] [--fflinks] [--info] [--infofile[=]file] [--noreport]\n"
+    "\t[--version] [--help] [--] [directory ...]\n");
 
   if (n < 2) return;
   fprintf(stdout,
-	"  ------- Listing options -------\n"
-	"  -a            All files are listed.\n"
-	"  -d            List directories only.\n"
-	"  -l            Follow symbolic links like directories.\n"
-	"  -f            Print the full path prefix for each file.\n"
-	"  -x            Stay on current filesystem only.\n"
-	"  -L level      Descend only level directories deep.\n"
-	"  -R            Rerun tree when max dir level reached.\n"
-	"  -P pattern    List only those files that match the pattern given.\n"
-	"  -I pattern    Do not list files that match the given pattern.\n"
-	"  --gitignore   Filter by using .gitignore files.\n"
-	"  --gitfile X   Explicitly read gitignore file.\n"
-	"  --ignore-case Ignore case when pattern matching.\n"
-	"  --matchdirs   Include directory names in -P pattern matching.\n"
-	"  --metafirst   Print meta-data at the beginning of each line.\n"
-	"  --prune       Prune empty directories from the output.\n"
-	"  --info        Print information about files found in .info files.\n"
-	"  --infofile X  Explicitly read info file.\n"
-	"  --noreport    Turn off file/directory count at end of tree listing.\n"
-	"  --charset X   Use charset X for terminal/HTML and indentation line output.\n"
-	"  --filelimit # Do not descend dirs with more than # files in them.\n"
-	"  -o filename   Output to file instead of stdout.\n"
-	"  ------- File options -------\n"
-	"  -q            Print non-printable characters as '?'.\n"
-	"  -N            Print non-printable characters as is.\n"
-	"  -Q            Quote filenames with double quotes.\n"
-	"  -p            Print the protections for each file.\n"
-	"  -u            Displays file owner or UID number.\n"
-	"  -g            Displays file group owner or GID number.\n"
-	"  -s            Print the size in bytes of each file.\n"
-	"  -h            Print the size in a more human readable way.\n"
-	"  --si          Like -h, but use in SI units (powers of 1000).\n"
-	"  --du          Compute size of directories by their contents.\n"
-	"  -D            Print the date of last modification or (-c) status change.\n"
-	"  --timefmt <f> Print and format time according to the format <f>.\n"
-	"  -F            Appends '/', '=', '*', '@', '|' or '>' as per ls -F.\n"
-	"  --inodes      Print inode number of each file.\n"
-	"  --device      Print device ID number to which each file belongs.\n"
-	"  ------- Sorting options -------\n"
-	"  -v            Sort files alphanumerically by version.\n"
-	"  -t            Sort files by last modification time.\n"
-	"  -c            Sort files by last status change time.\n"
-	"  -U            Leave files unsorted.\n"
-	"  -r            Reverse the order of the sort.\n"
-	"  --dirsfirst   List directories before files (-U disables).\n"
-	"  --filesfirst  List files before directories (-U disables).\n"
-	"  --sort X      Select sort: name,version,size,mtime,ctime.\n"
-	"  ------- Graphics options -------\n"
-	"  -i            Don't print indentation lines.\n"
-	"  -A            Print ANSI lines graphic indentation lines.\n"
-	"  -S            Print with CP437 (console) graphics indentation lines.\n"
-	"  -n            Turn colorization off always (-C overrides).\n"
-	"  -C            Turn colorization on always.\n"
-	"  ------- XML/HTML/JSON options -------\n"
-	"  -X            Prints out an XML representation of the tree.\n"
-	"  -J            Prints out an JSON representation of the tree.\n"
-	"  -H baseHREF   Prints out HTML format with baseHREF as top directory.\n"
-	"  -T string     Replace the default HTML title and H1 header with string.\n"
-	"  --nolinks     Turn off hyperlinks in HTML output.\n"
-	"  --hintro X    Use file X as the HTML intro.\n"
-	"  --houtro X    Use file X as the HTML outro.\n"
-	"  ------- Input options -------\n"
-	"  --fromfile    Reads paths from files (.=stdin)\n"
-	"  --fromtabfile Reads trees from tab indented files (.=stdin)\n"
-	"  --fflinks     Process link information when using --fromfile.\n"
-	"  ------- Miscellaneous options -------\n"
-	"  --version     Print version and exit.\n"
-	"  --help        Print usage and this help message and exit.\n"
-	"  --            Options processing terminator.\n");
+    "  ------- Listing options -------\n"
+    "  -a            All files are listed.\n"
+    "  -d            List directories only.\n"
+    "  -l            Follow symbolic links like directories.\n"
+    "  -f            Print the full path prefix for each file.\n"
+    "  -x            Stay on current filesystem only.\n"
+    "  -L level      Descend only level directories deep.\n"
+    "  -R            Rerun tree when max dir level reached.\n"
+    "  -P pattern    List only those files that match the pattern given.\n"
+    "  -I pattern    Do not list files that match the given pattern.\n"
+    "  --gitignore   Filter by using .gitignore files.\n"
+    "  --gitfile X   Explicitly read gitignore file.\n"
+    "  --ignore-case Ignore case when pattern matching.\n"
+    "  --matchdirs   Include directory names in -P pattern matching.\n"
+    "  --metafirst   Print meta-data at the beginning of each line.\n"
+    "  --prune       Prune empty directories from the output.\n"
+    "  --info        Print information about files found in .info files.\n"
+    "  --infofile X  Explicitly read info file.\n"
+    "  --noreport    Turn off file/directory count at end of tree listing.\n"
+    "  --charset X   Use charset X for terminal/HTML and indentation line output.\n"
+    "  --filelimit # Do not descend dirs with more than # files in them.\n"
+    "  -o filename   Output to file instead of stdout.\n"
+    "  ------- File options -------\n"
+    "  -q            Print non-printable characters as '?'.\n"
+    "  -N            Print non-printable characters as is.\n"
+    "  -Q            Quote filenames with double quotes.\n"
+    "  -p            Print the protections for each file.\n"
+    "  -u            Displays file owner or UID number.\n"
+    "  -g            Displays file group owner or GID number.\n"
+    "  -s            Print the size in bytes of each file.\n"
+    "  -h            Print the size in a more human readable way.\n"
+    "  --si          Like -h, but use in SI units (powers of 1000).\n"
+    "  --du|--dU     Compute size of directories by their contents (--dU ignore -L limit).\n"
+    "  -D            Print the date of last modification or (-c) status change.\n"
+    "  --timefmt <f> Print and format time according to the format <f>.\n"
+    "  -F            Appends '/', '=', '*', '@', '|' or '>' as per ls -F.\n"
+    "  --inodes      Print inode number of each file.\n"
+    "  --device      Print device ID number to which each file belongs.\n"
+    "  ------- Sorting options -------\n"
+    "  -v            Sort files alphanumerically by version.\n"
+    "  -t            Sort files by last modification time.\n"
+    "  -c            Sort files by last status change time.\n"
+    "  -U            Leave files unsorted.\n"
+    "  -r            Reverse the order of the sort.\n"
+    "  --dirsfirst   List directories before files (-U disables).\n"
+    "  --filesfirst  List files before directories (-U disables).\n"
+    "  --sort X      Select sort: name,version,size,mtime,ctime.\n"
+    "  ------- Graphics options -------\n"
+    "  -i            Don't print indentation lines.\n"
+    "  -A            Print ANSI lines graphic indentation lines.\n"
+    "  -S            Print with CP437 (console) graphics indentation lines.\n"
+    "  -n            Turn colorization off always (-C overrides).\n"
+    "  -C            Turn colorization on always.\n"
+    "  ------- XML/HTML/JSON options -------\n"
+    "  -X            Prints out an XML representation of the tree.\n"
+    "  -J            Prints out an JSON representation of the tree.\n"
+    "  -H baseHREF   Prints out HTML format with baseHREF as top directory.\n"
+    "  -T string     Replace the default HTML title and H1 header with string.\n"
+    "  --nolinks     Turn off hyperlinks in HTML output.\n"
+    "  --hintro X    Use file X as the HTML intro.\n"
+    "  --houtro X    Use file X as the HTML outro.\n"
+    "  ------- Input options -------\n"
+    "  --fromfile    Reads paths from files (.=stdin)\n"
+    "  --fromtabfile Reads trees from tab indented files (.=stdin)\n"
+    "  --fflinks     Process link information when using --fromfile.\n"
+    "  ------- Miscellaneous options -------\n"
+    "  --version     Print version and exit.\n"
+    "  --help        Print usage and this help message and exit.\n"
+    "  --            Options processing terminator.\n");
   exit(0);
 }
 
@@ -894,7 +904,8 @@ struct _info **unix_getfulltree(char *d, u_long lev, dev_t dev, off_t *size, cha
   char *start_rel_path;
 
   *err = NULL;
-  if (Level >= 0 && lev > Level) return NULL;
+  if (Level >= 0 && lev > Level)
+    if (!scanflag) return NULL;
   if (xdev && lev == 0) {
     stat(d,&sb);
     dev = sb.st_dev;
@@ -918,7 +929,7 @@ struct _info **unix_getfulltree(char *d, u_long lev, dev_t dev, off_t *size, cha
     }
   }
 
-  push_files(d, &ig, &inf, lev==0);
+  if (Level == 0 || lev <= Level) push_files(d, &ig, &inf, lev==0);
 
   sav = dir = read_dir(d, &n, inf != NULL);
   if (tmp_pattern) {
@@ -950,38 +961,38 @@ struct _info **unix_getfulltree(char *d, u_long lev, dev_t dev, off_t *size, cha
   while (*dir) {
     if ((*dir)->isdir && !(xdev && dev != (*dir)->dev)) {
       if ((*dir)->lnk) {
-	if (lflag) {
-	  if (findino((*dir)->inode,(*dir)->dev)) {
-	    (*dir)->err = scopy("recursive, not followed");
-	  } else {
-	    saveino((*dir)->inode, (*dir)->dev);
-	    if (*(*dir)->lnk == '/')
-	      (*dir)->child = unix_getfulltree((*dir)->lnk,lev+1,dev,&((*dir)->size),&((*dir)->err));
-	    else {
-	      if (strlen(d)+strlen((*dir)->lnk)+2 > pathsize) path=xrealloc(path,pathsize=(strlen(d)+strlen((*dir)->name)+1024));
-	      if (fflag && !strcmp(d,"/")) sprintf(path,"%s%s",d,(*dir)->lnk);
-	      else sprintf(path,"%s/%s",d,(*dir)->lnk);
-	      (*dir)->child = unix_getfulltree(path,lev+1,dev,&((*dir)->size),&((*dir)->err));
-	    }
-	  }
-	}
+        if (lflag) {
+          if (findino((*dir)->inode,(*dir)->dev)) {
+            (*dir)->err = scopy("recursive, not followed");
+          } else {
+            saveino((*dir)->inode, (*dir)->dev);
+            if (*(*dir)->lnk == '/')
+              (*dir)->child = unix_getfulltree((*dir)->lnk,lev+1,dev,&((*dir)->size),&((*dir)->err));
+            else {
+              if (strlen(d)+strlen((*dir)->lnk)+2 > pathsize) path=xrealloc(path,pathsize=(strlen(d)+strlen((*dir)->name)+1024));
+              if (fflag && !strcmp(d,"/")) sprintf(path,"%s%s",d,(*dir)->lnk);
+              else sprintf(path,"%s/%s",d,(*dir)->lnk);
+              (*dir)->child = unix_getfulltree(path,lev+1,dev,&((*dir)->size),&((*dir)->err));
+            }
+          }
+        }
       } else {
-	if (strlen(d)+strlen((*dir)->name)+2 > pathsize) path=xrealloc(path,pathsize=(strlen(d)+strlen((*dir)->name)+1024));
-	if (fflag && !strcmp(d,"/")) sprintf(path,"%s%s",d,(*dir)->name);
-	else sprintf(path,"%s/%s",d,(*dir)->name);
-	saveino((*dir)->inode, (*dir)->dev);
-	(*dir)->child = unix_getfulltree(path,lev+1,dev,&((*dir)->size),&((*dir)->err));
+        if (strlen(d)+strlen((*dir)->name)+2 > pathsize) path=xrealloc(path,pathsize=(strlen(d)+strlen((*dir)->name)+1024));
+        if (fflag && !strcmp(d,"/")) sprintf(path,"%s%s",d,(*dir)->name);
+        else sprintf(path,"%s/%s",d,(*dir)->name);
+        saveino((*dir)->inode, (*dir)->dev);
+        (*dir)->child = unix_getfulltree(path,lev+1,dev,&((*dir)->size),&((*dir)->err));
       }
       /* prune empty folders, unless they match the requested pattern */
       if (pruneflag && (*dir)->child == NULL &&
-	  !(matchdirs && pattern && patinclude((*dir)->name, (*dir)->isdir))) {
-	sp = *dir;
-	for(p=dir;*p;p++) *p = *(p+1);
-	n--;
-	free(sp->name);
-	if (sp->lnk) free(sp->lnk);
-	free(sp);
-	continue;
+        !(matchdirs && pattern && patinclude((*dir)->name, (*dir)->isdir))) {
+        sp = *dir;
+        for(p=dir;*p;p++) *p = *(p+1);
+        n--;
+        free(sp->name);
+        if (sp->lnk) free(sp->lnk);
+        free(sp);
+        continue;
       }
     }
     if (duflag) *size += (*dir)->size;
@@ -989,7 +1000,11 @@ struct _info **unix_getfulltree(char *d, u_long lev, dev_t dev, off_t *size, cha
   }
 
   /* sorting needs to be deferred for --du: */
-  if (topsort) qsort(sav,n,sizeof(struct _info *),topsort);
+#if __APPLE__
+  if (topsort) qsort(sav,n,sizeof(struct _info *), (int (*)(const void *, const void *))topsort);
+#else
+  if (topsort) qsort(sav,n,sizeof(struct _info *), topsort);
+#endif
 
   free(path);
   if (n == 0) {
@@ -1101,7 +1116,7 @@ void free_dir(struct _info **d)
   free(d);
 }
 
-char *gnu_getcwd()
+char *gnu_getcwd(void)
 {
   int size = 100;
   char *buffer = (char *) xmalloc (size);

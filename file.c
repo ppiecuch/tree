@@ -22,7 +22,7 @@ extern bool noindent, force_color, matchdirs, fflinks;
 extern bool reverse;
 extern int pattern, ipattern;
 
-extern int (*topsort)();
+extern int (*topsort)(void);
 extern FILE *outfile;
 extern int Level, *dirs, maxdirs;
 
@@ -171,7 +171,11 @@ struct _info **fprune(struct _info *head, char *path, bool matched, bool root)
   }
   dir[count] = NULL;
 
-  if (topsort) qsort(dir,count,sizeof(struct _info *),topsort);
+#ifdef __APPLE__
+  if (topsort) qsort(dir,count,sizeof(struct _info *), (int (*)(const void *, const void *))topsort);
+#else
+  if (topsort) qsort(dir,count,sizeof(struct _info *), topsort);
+#endif
 
   if (ig != NULL) ig = pop_filterstack();
   if (inf != NULL) inf = pop_infostack();

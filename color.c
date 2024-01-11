@@ -73,7 +73,7 @@ extern FILE *outfile;
 extern bool Hflag, force_color, nocolor;
 extern const char *charset;
 
-void parse_dir_colors()
+void parse_dir_colors(void)
 {
   char buf[1025], **arg, **c, *colors, *s;
   int i, n, col, cc;
