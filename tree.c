@@ -141,6 +141,9 @@ int main(int argc, char **argv)
   dirs = xmalloc(sizeof(int) * (maxdirs=PATH_MAX));
   memset(dirs, 0, sizeof(int) * maxdirs);
   dirs[0] = 0;
+#ifdef _WIN32
+  dirs[1] = 0;
+#endif
   Level = -1;
 
   setlocale(LC_CTYPE, "");

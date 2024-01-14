@@ -30,8 +30,10 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <pwd.h>
 #include <grp.h>
+#endif /* !_WIN32 */
 #ifdef __EMX__  /* for OS/2 systems */
 #  define INCL_DOSFILEMGR
 #  define INCL_DOSNLS
@@ -49,6 +51,68 @@
 #  define getcwd _getcwd2
 #  define chdir _chdir2
 #endif
+
+#ifdef _WIN32
+#include <errno.h>
+typedef unsigned char   u_char;
+typedef unsigned short  u_short;
+typedef unsigned int    u_int;
+typedef unsigned long   u_long;
+#  define strcasecmp    _stricmp
+#  define S_IFLNK       0xA000    /* symbolic link */
+#  define S_IFSOCK      0xC000    /* socket */
+#  define S_ISUID       0004000   /* set user id on execution */
+#  define S_ISGID       0002000   /* set group id on execution */
+#  define S_ISVTX       0001000   /* save swapped text even after use */
+#  ifdef _LARGEFILE_SOURCE
+#    define __USE_LARGEFILE     1         /* declare fseeko and ftello */
+#  endif
+#  ifdef _LARGEFILE64_SOURCE
+#    define __USE_LARGEFILE64   1    /* declare 64-bit functions */
+#  endif
+#  if defined _FILE_OFFSET_BITS && _FILE_OFFSET_BITS == 64
+#    define __USE_FILE_OFFSET64 1    /* replace 32-bit functions by 64-bit ones */
+#  endif
+#  if (__USE_LARGEFILE || __USE_LARGEFILE64) && __USE_FILE_OFFSET64
+/* replace stat and seek by their large-file equivalents */
+#    define	stat   _stati64
+#    define	lstat  _stati64
+#    define	off_t  __int64
+#endif /* LARGE_FILES */
+typedef unsigned int uid_t;
+typedef unsigned int gid_t;
+struct group
+{
+  char *gr_name;
+  char *gr_passwd;
+  gid_t gr_gid;
+  char **gr_mem;
+};
+struct passwd
+{
+  char *pw_name;
+  char *pw_passwd;
+  uid_t pw_uid;
+  gid_t pw_gid;
+  char *pw_gecos;
+  char *pw_dir;
+  char *pw_shell;
+};
+# define getpwuid(i) NULL
+# define getgrgid(i) NULL
+int readlink (const char *path, char *buf, size_t len)
+{
+     errno = ENOSYS;
+     return -1;
+}
+char* realpath(const char *filename, char *resolved_name) {
+  if (resolved_name == NULL) resolved_name = malloc(PATH_MAX);
+  if (resolved_name == NULL) return NULL;
+  if (access(filename, F_OK) != 0) return NULL;
+  if (GetFullPathNameA(filename, MAX_PATH, resolved_name, NULL) == 0) return NULL;
+  return resolved_name;
+}
+#endif /* _WIN32 */
 
 #include <locale.h>
 #include <langinfo.h>
