@@ -112,10 +112,13 @@ char* realpath(const char *filename, char *resolved_name) {
   if (GetFullPathNameA(filename, MAX_PATH, resolved_name, NULL) == 0) return NULL;
   return resolved_name;
 }
+#define nl_langinfo(...) "utf8"
 #endif /* _WIN32 */
 
 #include <locale.h>
+#ifndef _WIN32
 #include <langinfo.h>
+#endif
 #include <wchar.h>
 #include <wctype.h>
 
