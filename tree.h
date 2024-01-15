@@ -109,7 +109,7 @@ char* realpath(const char *filename, char *resolved_name) {
   if (resolved_name == NULL) resolved_name = malloc(PATH_MAX);
   if (resolved_name == NULL) return NULL;
   if (access(filename, F_OK) != 0) return NULL;
-  if (GetFullPathNameA(filename, MAX_PATH, resolved_name, NULL) == 0) return NULL;
+  if (GetFullPathNameA(filename, PATH_MAX, resolved_name, NULL) == 0) return NULL;
   return resolved_name;
 }
 #define nl_langinfo(...) "utf8"
