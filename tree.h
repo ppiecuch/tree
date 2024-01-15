@@ -100,12 +100,13 @@ struct passwd
 };
 # define getpwuid(i) NULL
 # define getgrgid(i) NULL
-int readlink (const char *path, char *buf, size_t len)
+static int readlink (const char *path, char *buf, size_t len)
 {
-     errno = ENOSYS;
-     return -1;
+  errno = ENOSYS;
+  return -1;
 }
-char* realpath(const char *filename, char *resolved_name) {
+static char* realpath(const char *filename, char *resolved_name)
+{
   if (resolved_name == NULL) resolved_name = malloc(PATH_MAX);
   if (resolved_name == NULL) return NULL;
   if (access(filename, F_OK) != 0) return NULL;
