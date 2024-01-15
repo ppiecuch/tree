@@ -75,9 +75,9 @@ typedef unsigned long   u_long;
 #  endif
 #  if (__USE_LARGEFILE || __USE_LARGEFILE64) && __USE_FILE_OFFSET64
 /* replace stat and seek by their large-file equivalents */
-#    define	stat   _stati64
-#    define	lstat  _stati64
-#    define	off_t  __int64
+#    define stat   _stati64
+#    define lstat  _stati64
+#    define off_t  __int64
 #endif /* LARGE_FILES */
 typedef unsigned int uid_t;
 typedef unsigned int gid_t;
